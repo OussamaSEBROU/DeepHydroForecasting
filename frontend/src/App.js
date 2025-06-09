@@ -1,4 +1,4 @@
-// App.js 
+// App.js
 import React, { useState, useEffect, useRef } from 'react';
 import { LuUpload, LuLineChart, LuLightbulb, LuFileText, LuMessageSquare, LuSettings } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -736,3 +736,35 @@ const App = () => {
 
     export default App;
     ```
+
+---
+
+**Phase 2: Ultra-Reliable GitHub Upload (Choose ONE)**
+
+**Option A: The Safest (Requires GitHub Web Interface)**
+
+1.  **On your mobile browser, go to your GitHub repository.**
+2.  **Navigate to `frontend/src/App.js`**.
+3.  Click the "Edit this file" (pencil) icon. This opens an inline editor directly on GitHub.
+4.  **DELETE ALL existing content** in the GitHub editor.
+5.  **Copy the `App.js` code from Phase 1** (the block above) and **PASTE IT** into the empty GitHub editor.
+6.  Scroll down, add a commit message (e.g., "Fix App.js JSX error via direct GitHub edit"), and click "Commit changes".
+    *This method bypasses your local file system and mobile text editor, directly editing the file on GitHub's server, which is the most reliable way to ensure a clean file.*
+
+**Option B: If you must re-upload a folder (High Risk of Re-introducing Error)**
+
+1.  **After performing Phase 1 (Local File Integrity Check) on your mobile device.**
+2.  **Go to your GitHub repository in your mobile browser.**
+3.  **Delete the entire `frontend/` folder** on GitHub. (Careful: This deletes all its contents!)
+4.  **Upload the *new*, *clean* `frontend/` folder** from your mobile device to your GitHub repository. Ensure it contains the perfectly re-created `App.js` along with `public/`, `src/index.js`, `package.json`, `tailwind.config.js`, etc.
+
+---
+
+**Phase 3: Final Render.com Deployment**
+
+1.  **After completing ONE of the GitHub upload options above.**
+2.  **Go to Render.com.**
+3.  Navigate to your `DeepHydro Forecasting` web service.
+4.  Click on "Manual Deploy" and then select **"Clear cache & deploy"**. This is crucial to force Render to fetch the absolute latest, potentially cleaner files from GitHub and restart the entire build process.
+
+If after these steps the exact same `Syntax error` persists, it would imply a fundamental issue with the environment Render is providing or a very rare, persistent encoding problem across systems. However, a direct edit on GitHub or a meticulously clean re-upload usually resolves such issues.
