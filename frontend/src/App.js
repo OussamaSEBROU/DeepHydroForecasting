@@ -44,7 +44,8 @@ const App = () => {
 
     const fileInputRef = useRef(null);
 
-    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000'; // Default for local dev
+    // This will be set by Render.com in production, default to localhost for local testing (if you can run it)
+    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
 
     // Function to add user action to the global log
     const addAction = (actionType, details = {}) => {
@@ -735,42 +736,12 @@ const App = () => {
 
     export default App;
     ```
-
 ---
 
-**File 3: `DeepHydroForecasting/frontend/package.json`**
+**After replacing `App.js` with this entire code block, ensure you:**
 
-```json
-{
-  "name": "deephydro-frontend",
-  "version": "0.1.0",
-  "private": true,
-  "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-scripts": "5.0.1",
-    "tailwindcss": "^3.4.4",
-    "lucide-react": "^0.400.0",
-    "recharts": "^2.12.7",
-    "date-fns": "^3.6.0",
-    "xlsx": "^0.18.5"
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  }
-}
+1.  **Save the file correctly.**
+2.  **Re-upload your entire `DeepHydroForecasting` project folder to GitHub.** This is crucial so Render gets the updated `App.js`.
+3.  **Go to Render.com and trigger a new "Manual Deploy".** I highly recommend using "Clear cache & deploy" again for this type of error, as it ensures a fresh build.
+
+This should resolve the JSX syntax error. We are systematically going through the build errors, and fixing syntax issues is a good sign that the environment setup is getting closer to correct.
