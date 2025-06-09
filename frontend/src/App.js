@@ -736,12 +736,5 @@ const App = () => {
 
     export default App;
     ```
----
+//---
 
-**After replacing `App.js` with this entire code block, ensure you:**
-
-1.  **Save the file correctly.**
-2.  **Re-upload your entire `DeepHydroForecasting` project folder to GitHub.** This is crucial so Render gets the updated `App.js`.
-3.  **Go to Render.com and trigger a new "Manual Deploy".** I highly recommend using "Clear cache & deploy" again for this type of error, as it ensures a fresh build.
-
-This should resolve the JSX syntax error. We are systematically going through the build errors, and fixing syntax issues is a good sign that the environment setup is getting closer to correct.
