@@ -1,6 +1,6 @@
 // App.js
 import React, { useState, useEffect, useRef } from 'react';
-import { LuUpload, LuLineChart, LuLightbulb, LuFileText, LuMessageSquare, LuSettings } from 'lucide-react';
+// Removed Lucide React icon imports as per user request
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -334,7 +334,6 @@ const App = () => {
                             onClick={() => setActiveSection('upload')}
                             className={`flex items-center space-x-3 w-full p-3 rounded-lg transition duration-200 ease-in-out ${activeSection === 'upload' ? 'bg-blue-600 font-semibold' : 'hover:bg-blue-600'}`}
                         >
-                            <LuUpload className="w-5 h-5" />
                             <span>Data Upload</span>
                         </button>
                         <button
@@ -342,7 +341,6 @@ const App = () => {
                             className={`flex items-center space-x-3 w-full p-3 rounded-lg transition duration-200 ease-in-out ${activeSection === 'analysis' ? 'bg-blue-600 font-semibold' : 'hover:bg-blue-600'}`}
                             disabled={data.length === 0}
                         >
-                            <LuLineChart className="w-5 h-5" />
                             <span>Data Analysis</span>
                         </button>
                         <button
@@ -350,7 +348,6 @@ const App = () => {
                             className={`flex items-center space-x-3 w-full p-3 rounded-lg transition duration-200 ease-in-out ${activeSection === 'forecasting' ? 'bg-blue-600 font-semibold' : 'hover:bg-blue-600'}`}
                             disabled={data.length === 0}
                         >
-                            <LuLightbulb className="w-5 h-5" />
                             <span>Forecasting</span>
                         </button>
                         <button
@@ -358,7 +355,6 @@ const App = () => {
                             className={`flex items-center space-x-3 w-full p-3 rounded-lg transition duration-200 ease-in-out ${activeSection === 'report' ? 'bg-blue-600 font-semibold' : 'hover:bg-blue-600'}`}
                             disabled={data.length === 0}
                         >
-                            <LuFileText className="w-5 h-5" />
                             <span>Expert Report</span>
                         </button>
                         <button
@@ -366,14 +362,12 @@ const App = () => {
                             className={`flex items-center space-x-3 w-full p-3 rounded-lg transition duration-200 ease-in-out ${activeSection === 'chat' ? 'bg-blue-600 font-semibold' : 'hover:bg-blue-600'}`}
                             disabled={data.length === 0}
                         >
-                            <LuMessageSquare className="w-5 h-5" />
                             <span>AI Chat</span>
                         </button>
                         <button
                             onClick={() => setActiveSection('admin')}
                             className={`flex items-center space-x-3 w-full p-3 rounded-lg transition duration-200 ease-in-out ${activeSection === 'admin' ? 'bg-blue-600 font-semibold' : 'hover:bg-blue-600'}`}
                         >
-                            <LuSettings className="w-5 h-5" />
                             <span>Admin</span>
                         </button>
                     </nav>
