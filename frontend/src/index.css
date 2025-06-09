@@ -1,0 +1,19 @@
+/* DeepHydroForecasting/frontend/src/index.css */
+
+/* Import Tailwind CSS directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Any additional global styles can go here */
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif; /* Ensure Inter font is applied globally */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
