@@ -1,3 +1,4 @@
+
 // App.js
 import React, { useState, useEffect, useRef } from 'react';
 import { LuUpload, LuLineChart, LuLightbulb, LuFileText, LuMessageSquare, LuSettings } from 'lucide-react';
@@ -736,3 +737,4 @@ const App = () => {
 
     export default App;
     ```
+
