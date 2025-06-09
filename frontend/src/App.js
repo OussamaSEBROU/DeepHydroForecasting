@@ -1,4 +1,3 @@
-
 // App.js
 import React, { useState, useEffect, useRef } from 'react';
 import { LuUpload, LuLineChart, LuLightbulb, LuFileText, LuMessageSquare, LuSettings } from 'lucide-react';
@@ -296,7 +295,6 @@ const App = () => {
         showMessage('Excel downloaded.', 'success');
     };
 
-
     // Combine historical and forecast data for plotting
     const combinedChartData = data.map(d => ({
         date: d.date.getTime(), // Use timestamp for unique X-axis sorting
@@ -319,9 +317,11 @@ const App = () => {
     // For better display, ensure forecast confidence intervals are only plotted for forecast data
     const forecastPlotData = combinedChartData.filter(d => d.isForecast);
 
-
     return (
         <div className="min-h-screen flex flex-col font-inter bg-gradient-to-br from-blue-50 to-indigo-100">
+            {/* Message Box */}
+            <MessageBox message={message} type={messageType} onClose={closeMessage} />
+            
             <header className="bg-white shadow-md p-4 text-center text-blue-800 text-3xl font-bold">
                 DeepHydro Forecasting
             </header>
@@ -374,336 +374,360 @@ const App = () => {
                             className={`flex items-center space-x-3 w-full p-3 rounded-lg transition duration-200 ease-in-out ${activeSection === 'admin' ? 'bg-blue-600 font-semibold' : 'hover:bg-blue-600'}`}
                         >
                             <LuSettings className="w-5 h-5" />
-                            <span>Admin Dashboard</span>
+                            <span>Admin</span>
                         </button>
                     </nav>
                 </aside>
 
-                {/* Main Content Area */}
-                <main className="flex-1 p-6 bg-white rounded-tl-lg md:rounded-bl-none shadow-inner overflow-y-auto">
+                {/* Main Content */}
+                <main className="flex-1 p-6 bg-white rounded-tl-lg shadow-inner">
                     {loading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-gray-200 bg-opacity-75 z-40">
-                            <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
-                            <p className="ml-4 text-blue-700 text-lg">Loading...</p>
+                        <div className="fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center z-40">
+                            <div className="bg-white p-6 rounded-lg shadow-lg text-center">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                                <p className="text-lg font-semibold text-gray-700">Processing...</p>
+                            </div>
                         </div>
                     )}
-                    <MessageBox message={message} type={messageType} onClose={closeMessage} />
 
                     {/* Data Upload Section */}
                     {activeSection === 'upload' && (
                         <div className="space-y-6">
-                            <h2 className="text-3xl font-bold text-blue-800 mb-4">Upload Groundwater Data</h2>
-                            <p className="text-gray-600">Upload your historical groundwater level data in an `.xlsx` format. The file should contain two columns: "date" and "level".</p>
-
-                            <div className="flex flex-col items-start space-y-4">
-                                <label
-                                    htmlFor="file-upload"
-                                    className="cursor-pointer bg-blue-600 text-white py-3 px-6 rounded-md shadow-md hover:bg-blue-700 transition duration-300 transform hover:scale-105"
-                                >
-                                    <input
-                                        id="file-upload"
-                                        type="file"
-                                        accept=".xlsx"
-                                        onChange={handleFileUpload}
-                                        className="hidden"
-                                        ref={fileInputRef}
-                                    />
-                                    Select .xlsx File
-                                </label>
+                            <h2 className="text-3xl font-bold text-blue-800 border-b pb-2">Data Upload</h2>
+                            <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+                                <h3 className="text-xl font-semibold text-blue-700 mb-4">Upload Historical Data</h3>
+                                <p className="text-gray-600 mb-4">
+                                    Upload an Excel file (.xlsx) containing historical water level data with columns: Date and Level.
+                                </p>
+                                <input
+                                    type="file"
+                                    accept=".xlsx"
+                                    onChange={handleFileUpload}
+                                    ref={fileInputRef}
+                                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                />
                                 {selectedFile && (
-                                    <p className="text-gray-700">Selected file: <span className="font-semibold">{selectedFile.name}</span></p>
-                                )}
-                                {data.length > 0 && (
-                                    <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
-                                        <p className="text-green-800">Successfully loaded {data.length} data points.</p>
-                                        <p className="text-sm text-gray-600">First few rows:</p>
-                                        <ul className="text-sm text-gray-700 list-disc ml-4">
-                                            {data.slice(0, 3).map((d, i) => (
-                                                <li key={i}>{format(d.date, 'yyyy-MM-dd')}: {d.level.toFixed(2)}</li>
-                                            ))}
-                                            {data.length > 3 && <li>...</li>}
-                                        </ul>
+                                    <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                                        <p className="text-green-700 font-semibold">File Selected: {selectedFile.name}</p>
+                                        <p className="text-green-600">Data Points: {data.length}</p>
                                     </div>
                                 )}
                             </div>
-                        )}
+                        </div>
+                    )}
 
-                        {/* Data Analysis Section */}
-                        {activeSection === 'analysis' && (
-                            <div className="space-y-6">
-                                <h2 className="text-3xl font-bold text-blue-800 mb-4">Groundwater Data Analysis</h2>
-                                <p className="text-gray-600">Get key insights into your historical groundwater level data, including summary statistics, trends, and seasonal patterns.</p>
-                                <button
-                                    onClick={handleAnalyzeData}
-                                    className="bg-blue-600 text-white py-3 px-6 rounded-md shadow-lg hover:bg-blue-700 transition duration-300 transform hover:scale-105"
-                                    disabled={data.length === 0 || loading}
-                                >
-                                    {loading ? 'Analyzing...' : 'Perform Analysis'}
-                                </button>
+                    {/* Data Analysis Section */}
+                    {activeSection === 'analysis' && (
+                        <div className="space-y-6">
+                            <h2 className="text-3xl font-bold text-blue-800 border-b pb-2">Data Analysis</h2>
+                            {data.length === 0 ? (
+                                <div className="bg-yellow-50 p-6 rounded-lg border border-yellow-200">
+                                    <p className="text-yellow-700">Please upload data first to perform analysis.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <button
+                                        onClick={handleAnalyzeData}
+                                        className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition duration-300 font-semibold"
+                                    >
+                                        Analyze Data
+                                    </button>
+                                    
+                                    {/* Historical Data Chart */}
+                                    <div className="bg-gray-50 p-6 rounded-lg border">
+                                        <h3 className="text-xl font-semibold text-blue-700 mb-4">Historical Data Visualization</h3>
+                                        <ResponsiveContainer width="100%" height={400}>
+                                            <LineChart data={combinedChartData}>
+                                                <CartesianGrid strokeDasharray="3 3" />
+                                                <XAxis dataKey="date" />
+                                                <YAxis />
+                                                <Tooltip />
+                                                <Legend />
+                                                <Line 
+                                                    type="monotone" 
+                                                    dataKey="level" 
+                                                    stroke="#2563eb" 
+                                                    strokeWidth={2}
+                                                    name="Water Level"
+                                                />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
 
-                                {analysisResults && (
-                                    <div className="bg-gray-50 p-6 rounded-lg shadow-inner mt-6 space-y-6">
-                                        <h3 className="text-2xl font-semibold text-blue-700 border-b pb-2">Analysis Results</h3>
-
-                                        {/* Summary Statistics */}
-                                        <div>
-                                            <h4 className="text-xl font-medium text-blue-600 mb-2">Summary Statistics</h4>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                {Object.entries(analysisResults.stats).map(([key, value]) => (
-                                                    <div key={key} className="bg-white p-4 rounded-md shadow flex items-center justify-between">
-                                                        <span className="text-gray-600 font-medium">{key.replace(/_/g, ' ').toUpperCase()}:</span>
-                                                        <span className="text-blue-800 font-bold">{value.toFixed(2)}</span>
-                                                    </div>
-                                                ))}
+                                    {/* Analysis Results */}
+                                    {analysisResults && (
+                                        <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+                                            <h3 className="text-xl font-semibold text-blue-700 mb-4">Analysis Results</h3>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="bg-white p-4 rounded-lg shadow">
+                                                    <h4 className="font-semibold text-gray-700">Mean Level</h4>
+                                                    <p className="text-2xl font-bold text-blue-600">{analysisResults.mean?.toFixed(2)} m</p>
+                                                </div>
+                                                <div className="bg-white p-4 rounded-lg shadow">
+                                                    <h4 className="font-semibold text-gray-700">Standard Deviation</h4>
+                                                    <p className="text-2xl font-bold text-blue-600">{analysisResults.std?.toFixed(2)} m</p>
+                                                </div>
+                                                <div className="bg-white p-4 rounded-lg shadow">
+                                                    <h4 className="font-semibold text-gray-700">Minimum Level</h4>
+                                                    <p className="text-2xl font-bold text-blue-600">{analysisResults.min?.toFixed(2)} m</p>
+                                                </div>
+                                                <div className="bg-white p-4 rounded-lg shadow">
+                                                    <h4 className="font-semibold text-gray-700">Maximum Level</h4>
+                                                    <p className="text-2xl font-bold text-blue-600">{analysisResults.max?.toFixed(2)} m</p>
+                                                </div>
                                             </div>
                                         </div>
+                                    )}
 
-                                        {/* Time Series Plot */}
-                                        <div>
-                                            <h4 className="text-xl font-medium text-blue-600 mb-2">Groundwater Level Over Time</h4>
-                                            <ResponsiveContainer width="100%" height={400}>
-                                                <LineChart
-                                                    data={data.map(d => ({ ...d, date: format(d.date, 'yyyy-MM-dd') }))}
-                                                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                                                >
-                                                    <CartesianGrid strokeDasharray="3 3" />
-                                                    <XAxis dataKey="date" />
-                                                    <YAxis label={{ value: 'Level', angle: -90, position: 'insideLeft' }} />
-                                                    <Tooltip labelFormatter={(label) => `Date: ${label}`} formatter={(value) => `Level: ${value.toFixed(2)}`} />
-                                                    <Legend />
-                                                    <Line type="monotone" dataKey="level" stroke="#4F46E5" activeDot={{ r: 8 }} />
-                                                </LineChart>
-                                            </ResponsiveContainer>
-                                        </div>
-
-                                        {/* Trends and Seasonal Insights */}
-                                        <div>
-                                            <h4 className="text-xl font-medium text-blue-600 mb-2">Trends & Seasonal Patterns</h4>
-                                            <ul className="list-disc list-inside text-gray-700 space-y-2">
-                                                <li><span className="font-semibold">Trend:</span> {analysisResults.trend}</li>
-                                                <li><span className="font-semibold">Seasonality:</span> {analysisResults.seasonality}</li>
-                                                <li><span className="font-semibold">Key Insights:</span> {analysisResults.insights}</li>
-                                            </ul>
+                                    {/* Download Options */}
+                                    <div className="bg-gray-50 p-6 rounded-lg border">
+                                        <h3 className="text-xl font-semibold text-blue-700 mb-4">Download Data</h3>
+                                        <div className="flex space-x-4">
+                                            <button
+                                                onClick={() => downloadCSV(data, 'historical_data.csv')}
+                                                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-300"
+                                            >
+                                                Download CSV
+                                            </button>
+                                            <button
+                                                onClick={() => downloadExcel(data, 'historical_data.xlsx')}
+                                                className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition duration-300"
+                                            >
+                                                Download Excel
+                                            </button>
                                         </div>
                                     </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Forecasting Section */}
-                        {activeSection === 'forecasting' && (
-                            <div className="space-y-6">
-                                <h2 className="text-3xl font-bold text-blue-800 mb-4">Groundwater Level Forecasting</h2>
-                                <p className="text-gray-600">Predict future groundwater levels using a pre-trained deep learning model. Select the number of months you wish to forecast.</p>
-
-                                <div className="flex items-center space-x-4">
-                                    <label htmlFor="forecast-months" className="text-gray-700 font-medium">Forecast Months:</label>
-                                    <input
-                                        type="number"
-                                        id="forecast-months"
-                                        min="1"
-                                        max="12"
-                                        value={forecastMonths}
-                                        onChange={(e) => setForecastMonths(Math.max(1, Math.min(12, parseInt(e.target.value))))}
-                                        className="w-24 p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                                    />
-                                    <button
-                                        onClick={handleForecast}
-                                        className="bg-green-600 text-white py-3 px-6 rounded-md shadow-lg hover:bg-green-700 transition duration-300 transform hover:scale-105"
-                                        disabled={data.length === 0 || loading}
-                                    >
-                                        {loading ? 'Forecasting...' : 'Generate Forecast'}
-                                    </button>
                                 </div>
+                            )}
+                        </div>
+                    )}
 
-                                {forecastResults && (
-                                    <div className="bg-gray-50 p-6 rounded-lg shadow-inner mt-6 space-y-6">
-                                        <h3 className="text-2xl font-semibold text-blue-700 border-b pb-2">Forecast Results</h3>
+                    {/* Forecasting Section */}
+                    {activeSection === 'forecasting' && (
+                        <div className="space-y-6">
+                            <h2 className="text-3xl font-bold text-blue-800 border-b pb-2">Water Level Forecasting</h2>
+                            {data.length === 0 ? (
+                                <div className="bg-yellow-50 p-6 rounded-lg border border-yellow-200">
+                                    <p className="text-yellow-700">Please upload data first to perform forecasting.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+                                        <h3 className="text-xl font-semibold text-blue-700 mb-4">Forecast Settings</h3>
+                                        <div className="flex items-center space-x-4">
+                                            <label className="text-gray-700 font-semibold">Forecast Period (months):</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="24"
+                                                value={forecastMonths}
+                                                onChange={(e) => setForecastMonths(parseInt(e.target.value))}
+                                                className="border border-gray-300 rounded-lg px-3 py-2 w-20"
+                                            />
+                                            <button
+                                                onClick={handleForecast}
+                                                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition duration-300 font-semibold"
+                                            >
+                                                Generate Forecast
+                                            </button>
+                                        </div>
+                                    </div>
 
-                                        {/* Forecast Plot */}
-                                        <div>
-                                            <h4 className="text-xl font-medium text-blue-600 mb-2">Historical vs. Forecast</h4>
+                                    {/* Forecast Chart */}
+                                    {forecastResults && (
+                                        <div className="bg-gray-50 p-6 rounded-lg border">
+                                            <h3 className="text-xl font-semibold text-blue-700 mb-4">Forecast Results</h3>
                                             <ResponsiveContainer width="100%" height={400}>
-                                                <LineChart
-                                                    data={combinedChartData}
-                                                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                                                >
+                                                <LineChart data={combinedChartData}>
                                                     <CartesianGrid strokeDasharray="3 3" />
                                                     <XAxis dataKey="date" />
-                                                    <YAxis label={{ value: 'Level', angle: -90, position: 'insideLeft' }} />
+                                                    <YAxis />
                                                     <Tooltip />
                                                     <Legend />
-                                                    <Line
-                                                        type="monotone"
-                                                        dataKey="level"
-                                                        stroke="#4F46E5"
-                                                        name="Historical Level"
-                                                        dot={false}
-                                                        filter={(entry) => entry.isHistorical} // Custom filter for historical
-                                                    />
-                                                    <Line
-                                                        type="monotone"
-                                                        dataKey="level"
-                                                        stroke="#10B981"
-                                                        name="Forecast Level"
-                                                        dot={false}
-                                                        filter={(entry) => entry.isForecast} // Custom filter for forecast
-                                                    />
-                                                    {/* Confidence Interval Lines for Forecast */}
-                                                    <Line
-                                                        type="monotone"
-                                                        dataKey="lower_ci"
-                                                        stroke="#EF4444"
-                                                        strokeDasharray="5 5"
-                                                        dot={false}
-                                                        name="Lower CI"
-                                                        filter={(entry) => entry.isForecast}
-                                                    />
-                                                    <Line
-                                                        type="monotone"
-                                                        dataKey="upper_ci"
-                                                        stroke="#EF4444"
-                                                        strokeDasharray="5 5"
-                                                        dot={false}
-                                                        name="Upper CI"
-                                                        filter={(entry) => entry.isForecast}
+                                                    <Line 
+                                                        type="monotone" 
+                                                        dataKey="level" 
+                                                        stroke="#2563eb" 
+                                                        strokeWidth={2}
+                                                        name="Water Level"
                                                     />
                                                 </LineChart>
                                             </ResponsiveContainer>
                                         </div>
+                                    )}
 
-                                        {/* Forecast Metrics */}
-                                        <div>
-                                            <h4 className="text-xl font-medium text-blue-600 mb-2">Forecast Accuracy Metrics</h4>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                {Object.entries(forecastResults.metrics).map(([key, value]) => (
-                                                    <div key={key} className="bg-white p-4 rounded-md shadow flex items-center justify-between">
-                                                        <span className="text-gray-600 font-medium">{key.toUpperCase()}:</span>
-                                                        <span className="text-blue-800 font-bold">{value.toFixed(4)}</span>
-                                                    </div>
-                                                ))}
+                                    {/* Forecast Metrics */}
+                                    {forecastResults && forecastResults.metrics && (
+                                        <div className="bg-green-50 p-6 rounded-lg border border-green-200">
+                                            <h3 className="text-xl font-semibold text-green-700 mb-4">Forecast Metrics</h3>
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                <div className="bg-white p-4 rounded-lg shadow">
+                                                    <h4 className="font-semibold text-gray-700">MAE</h4>
+                                                    <p className="text-2xl font-bold text-green-600">{forecastResults.metrics.mae?.toFixed(4)}</p>
+                                                </div>
+                                                <div className="bg-white p-4 rounded-lg shadow">
+                                                    <h4 className="font-semibold text-gray-700">RMSE</h4>
+                                                    <p className="text-2xl font-bold text-green-600">{forecastResults.metrics.rmse?.toFixed(4)}</p>
+                                                </div>
+                                                <div className="bg-white p-4 rounded-lg shadow">
+                                                    <h4 className="font-semibold text-gray-700">MAPE</h4>
+                                                    <p className="text-2xl font-bold text-green-600">{forecastResults.metrics.mape?.toFixed(2)}%</p>
+                                                </div>
                                             </div>
                                         </div>
+                                    )}
 
-                                        {/* Download Options */}
-                                        <div className="flex space-x-4 mt-4">
-                                            <button
-                                                onClick={() => downloadCSV(forecastResults.forecast, 'DeepHydro_Forecast.csv')}
-                                                className="bg-gray-600 text-white py-2 px-4 rounded-md shadow-md hover:bg-gray-700 transition duration-300"
+                                    {/* Download Forecast */}
+                                    {forecastResults && (
+                                        <div className="bg-gray-50 p-6 rounded-lg border">
+                                            <h3 className="text-xl font-semibold text-blue-700 mb-4">Download Forecast</h3>
+                                            <div className="flex space-x-4">
+                                                <button
+                                                    onClick={() => downloadCSV(forecastResults.forecast, 'forecast_data.csv')}
+                                                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-300"
+                                                >
+                                                    Download CSV
+                                                </button>
+                                                <button
+                                                    onClick={() => downloadExcel(forecastResults.forecast, 'forecast_data.xlsx')}
+                                                    className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition duration-300"
+                                                >
+                                                    Download Excel
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Expert Report Section */}
+                    {activeSection === 'report' && (
+                        <div className="space-y-6">
+                            <h2 className="text-3xl font-bold text-blue-800 border-b pb-2">Expert Report Generation</h2>
+                            {data.length === 0 ? (
+                                <div className="bg-yellow-50 p-6 rounded-lg border border-yellow-200">
+                                    <p className="text-yellow-700">Please upload data first to generate a report.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+                                        <h3 className="text-xl font-semibold text-blue-700 mb-4">Report Settings</h3>
+                                        <div className="flex items-center space-x-4">
+                                            <label className="text-gray-700 font-semibold">Language:</label>
+                                            <select
+                                                value={reportLanguage}
+                                                onChange={(e) => setReportLanguage(e.target.value)}
+                                                className="border border-gray-300 rounded-lg px-3 py-2"
                                             >
-                                                Download Forecast (.csv)
-                                            </button>
+                                                <option value="en">English</option>
+                                                <option value="fr">French</option>
+                                                <option value="es">Spanish</option>
+                                                <option value="ar">Arabic</option>
+                                            </select>
                                             <button
-                                                onClick={() => downloadExcel(forecastResults.forecast, 'DeepHydro_Forecast.xlsx')}
-                                                className="bg-gray-600 text-white py-2 px-4 rounded-md shadow-md hover:bg-gray-700 transition duration-300"
+                                                onClick={handleGenerateReport}
+                                                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition duration-300 font-semibold"
                                             >
-                                                Download Forecast (.xlsx)
+                                                Generate Report
                                             </button>
                                         </div>
                                     </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* AI Expert Report Section */}
-                        {activeSection === 'report' && (
-                            <div className="space-y-6">
-                                <h2 className="text-3xl font-bold text-blue-800 mb-4">Generate AI Expert Report</h2>
-                                <p className="text-gray-600">Generate a comprehensive hydrogeology report based on your historical and forecasted data, written by an expert AI.</p>
-
-                                <div className="flex items-center space-x-4">
-                                    <label htmlFor="report-language" className="text-gray-700 font-medium">Report Language:</label>
-                                    <select
-                                        id="report-language"
-                                        value={reportLanguage}
-                                        onChange={(e) => setReportLanguage(e.target.value)}
-                                        className="p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                                    >
-                                        <option value="en">English</option>
-                                        <option value="fr">French</option>
-                                    </select>
-                                    <button
-                                        onClick={handleGenerateReport}
-                                        className="bg-purple-600 text-white py-3 px-6 rounded-md shadow-lg hover:bg-purple-700 transition duration-300 transform hover:scale-105"
-                                        disabled={data.length === 0 || loading}
-                                    >
-                                        {loading ? 'Generating...' : 'Generate PDF Report'}
-                                    </button>
+                                    <div className="bg-gray-50 p-6 rounded-lg border">
+                                        <h3 className="text-xl font-semibold text-blue-700 mb-4">Report Features</h3>
+                                        <ul className="list-disc list-inside space-y-2 text-gray-700">
+                                            <li>Comprehensive data analysis summary</li>
+                                            <li>Forecast results and confidence intervals</li>
+                                            <li>Professional charts and visualizations</li>
+                                            <li>Expert recommendations and insights</li>
+                                            <li>Multi-language support</li>
+                                        </ul>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
+                    )}
 
-                        {/* AI Chat Section */}
-                        {activeSection === 'chat' && (
-                            <div className="space-y-6 flex flex-col h-full">
-                                <h2 className="text-3xl font-bold text-blue-800 mb-4">Chat with AI Hydrogeology Expert</h2>
-                                <p className="text-gray-600">Ask questions about your data, forecasts, or general hydrogeology. The AI will provide expert insights.</p>
-
-                                <div className="flex-1 bg-gray-50 p-4 rounded-lg shadow-inner overflow-y-auto flex flex-col space-y-4 mb-4" style={{ minHeight: '300px' }}>
-                                    {chatHistory.length === 0 && (
-                                        <p className="text-center text-gray-500 italic">Start a conversation!</p>
-                                    )}
-                                    {chatHistory.map((msg, index) => (
-                                        <div
-                                            key={index}
-                                            className={`p-3 rounded-lg max-w-[80%] ${msg.role === 'user' ? 'bg-blue-100 self-end text-blue-800' : 'bg-gray-200 self-start text-gray-800'}`}
+                    {/* AI Chat Section */}
+                    {activeSection === 'chat' && (
+                        <div className="space-y-6">
+                            <h2 className="text-3xl font-bold text-blue-800 border-b pb-2">AI Assistant</h2>
+                            {data.length === 0 ? (
+                                <div className="bg-yellow-50 p-6 rounded-lg border border-yellow-200">
+                                    <p className="text-yellow-700">Please upload data first to chat with the AI assistant.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="bg-gray-50 p-6 rounded-lg border h-96 overflow-y-auto">
+                                        <h3 className="text-xl font-semibold text-blue-700 mb-4">Chat History</h3>
+                                        {chatHistory.length === 0 ? (
+                                            <p className="text-gray-500">Start a conversation with the AI assistant about your data...</p>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                {chatHistory.map((chat, index) => (
+                                                    <div key={index} className={`p-4 rounded-lg ${chat.role === 'user' ? 'bg-blue-100 ml-8' : 'bg-white mr-8'}`}>
+                                                        <p className="font-semibold text-sm text-gray-600 mb-2">
+                                                            {chat.role === 'user' ? 'You' : 'AI Assistant'}
+                                                        </p>
+                                                        <p className="text-gray-800">{chat.content}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <form onSubmit={handleChatSubmit} className="flex space-x-4">
+                                        <input
+                                            type="text"
+                                            value={chatInput}
+                                            onChange={(e) => setChatInput(e.target.value)}
+                                            placeholder="Ask about your data analysis or forecast..."
+                                            className="flex-1 border border-gray-300 rounded-lg px-4 py-2"
+                                        />
+                                        <button
+                                            type="submit"
+                                            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition duration-300 font-semibold"
                                         >
-                                            <p className="font-semibold">{msg.role === 'user' ? 'You' : 'AI Expert'}</p>
-                                            <p>{msg.content}</p>
-                                        </div>
-                                    ))}
+                                            Send
+                                        </button>
+                                    </form>
                                 </div>
+                            )}
+                        </div>
+                    )}
 
-                                <form onSubmit={handleChatSubmit} className="flex space-x-3">
-                                    <input
-                                        type="text"
-                                        value={chatInput}
-                                        onChange={(e) => setChatInput(e.target.value)}
-                                        placeholder="Ask your question..."
-                                        className="flex-1 p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                                        disabled={loading}
-                                    />
-                                    <button
-                                        type="submit"
-                                        className="bg-blue-600 text-white py-3 px-6 rounded-md shadow-lg hover:bg-blue-700 transition duration-300"
-                                        disabled={loading}
-                                    >
-                                        Send
-                                    </button>
-                                </form>
-                            </div>
-                        )}
-
-                        {/* Admin Dashboard Section */}
-                        {activeSection === 'admin' && (
-                            <div className="space-y-6">
-                                <h2 className="text-3xl font-bold text-blue-800 mb-4">Admin Dashboard</h2>
-                                <p className="text-gray-600">Monitor all user actions on the platform. Requires admin password.</p>
-
-                                {!isAdminLoggedIn ? (
-                                    <div className="flex flex-col space-y-4 max-w-sm">
+                    {/* Admin Section */}
+                    {activeSection === 'admin' && (
+                        <div className="space-y-6">
+                            <h2 className="text-3xl font-bold text-blue-800 border-b pb-2">Admin Dashboard</h2>
+                            {!isAdminLoggedIn ? (
+                                <div className="bg-red-50 p-6 rounded-lg border border-red-200">
+                                    <h3 className="text-xl font-semibold text-red-700 mb-4">Admin Login</h3>
+                                    <div className="flex items-center space-x-4">
                                         <input
                                             type="password"
-                                            placeholder="Enter admin password"
                                             value={adminPassword}
                                             onChange={(e) => setAdminPassword(e.target.value)}
-                                            className="p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                                            placeholder="Enter admin password"
+                                            className="border border-gray-300 rounded-lg px-4 py-2"
                                         />
                                         <button
                                             onClick={handleAdminLogin}
-                                            className="bg-red-600 text-white py-3 px-6 rounded-md shadow-lg hover:bg-red-700 transition duration-300"
+                                            className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition duration-300 font-semibold"
                                         >
                                             Login
                                         </button>
                                     </div>
-                                ) : (
-                                    <div className="bg-gray-50 p-6 rounded-lg shadow-inner mt-6">
-                                        <h3 className="text-2xl font-semibold text-blue-700 border-b pb-2 mb-4">Recent User Actions</h3>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="bg-green-50 p-6 rounded-lg border border-green-200">
+                                        <h3 className="text-2xl font-semibold text-green-700 border-b pb-2 mb-4">Recent User Actions</h3>
                                         {userActions.length === 0 ? (
                                             <p className="text-gray-500">No actions recorded yet.</p>
                                         ) : (
                                             <ul className="space-y-3">
-                                                {userActions.slice().reverse().map((action, index) => ( // Display in reverse chronological order
+                                                {userActions.slice().reverse().map((action, index) => (
                                                     <li key={index} className="bg-white p-4 rounded-md shadow flex flex-col md:flex-row md:items-center md:justify-between">
                                                         <span className="font-semibold text-blue-800 text-lg md:w-1/3">{action.actionType}</span>
                                                         <span className="text-gray-600 text-sm md:w-1/3">{new Date(action.timestamp).toLocaleString()}</span>
@@ -715,26 +739,26 @@ const App = () => {
                                             </ul>
                                         )}
                                     </div>
-                                )}
-                            </div>
-                        )}
-                    </main>
-                </div>
-
-                {/* Footer */}
-                <footer className="bg-gray-800 text-white p-4 text-center text-sm rounded-t-lg shadow-inner">
-                    Developed by DeepHydro Team
-                    <a
-                        href="mailto:oussama.sebrou@gmail.com?subject=DeepHydro.team.info"
-                        className="ml-4 text-blue-300 hover:text-blue-100 transition duration-200"
-                    >
-                        Contact Us
-                    </a>
-                </footer>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </main>
             </div>
-        );
-    };
 
-    export default App;
-    ```
+            {/* Footer */}
+            <footer className="bg-gray-800 text-white p-4 text-center text-sm rounded-t-lg shadow-inner">
+                Developed by DeepHydro Team
+                <a
+                    href="mailto:oussama.sebrou@gmail.com?subject=DeepHydro.team.info"
+                    className="ml-4 text-blue-300 hover:text-blue-100 transition duration-200"
+                >
+                    Contact Us
+                </a>
+            </footer>
+        </div>
+    );
+};
+
+export default App;
 
