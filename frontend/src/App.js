@@ -1,7 +1,7 @@
 // App.js
 import React, { useState, useEffect, useRef } from 'react';
-import { LuUpload, LuLineChart, LuLightbulb, LuFileText, LuMessageSquare, LuSettings } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Upload, LineChart, Lightbulb, FileText, MessageSquare, Settings } from 'lucide-react';
+import { LineChart as RechartsLineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import * as XLSX from 'xlsx';
 
@@ -297,7 +297,7 @@ const App = () => {
   const renderUploadSection = () => (
     <div className="bg-white rounded-lg shadow-lg p-6">
       <div className="flex items-center mb-4">
-        <LuUpload className="text-blue-600 mr-2" size={24} />
+        <Upload className="text-blue-600 mr-2" size={24} />
         <h2 className="text-xl font-semibold text-gray-800">Upload Historical Data</h2>
       </div>
       <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
@@ -334,7 +334,7 @@ const App = () => {
   const renderAnalysisSection = () => (
     <div className="bg-white rounded-lg shadow-lg p-6">
       <div className="flex items-center mb-4">
-        <LuLineChart className="text-green-600 mr-2" size={24} />
+        <LineChart className="text-green-600 mr-2" size={24} />
         <h2 className="text-xl font-semibold text-gray-800">Data Analysis</h2>
       </div>
       <button
@@ -367,7 +367,7 @@ const App = () => {
               <h4 className="text-lg font-medium text-gray-800 mb-2">Historical Data Visualization</h4>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={data}>
+                  <RechartsLineChart data={data}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis 
                       dataKey="date" 
@@ -386,7 +386,7 @@ const App = () => {
                       strokeWidth={2}
                       name="Historical Data"
                     />
-                  </LineChart>
+                  </RechartsLineChart>
                 </ResponsiveContainer>
               </div>
             </div>
@@ -399,7 +399,7 @@ const App = () => {
   const renderForecastSection = () => (
     <div className="bg-white rounded-lg shadow-lg p-6">
       <div className="flex items-center mb-4">
-        <LuLightbulb className="text-purple-600 mr-2" size={24} />
+        <Lightbulb className="text-purple-600 mr-2" size={24} />
         <h2 className="text-xl font-semibold text-gray-800">Forecasting</h2>
       </div>
       <div className="flex items-center space-x-4 mb-4">
@@ -444,7 +444,7 @@ const App = () => {
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={[...data, ...forecastResults.forecast]}>
+              <RechartsLineChart data={[...data, ...forecastResults.forecast]}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis 
                   dataKey="date" 
@@ -473,7 +473,7 @@ const App = () => {
                   name="Forecast"
                   connectNulls={false}
                 />
-              </LineChart>
+              </RechartsLineChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -484,7 +484,7 @@ const App = () => {
   const renderReportSection = () => (
     <div className="bg-white rounded-lg shadow-lg p-6">
       <div className="flex items-center mb-4">
-        <LuFileText className="text-red-600 mr-2" size={24} />
+        <FileText className="text-red-600 mr-2" size={24} />
         <h2 className="text-xl font-semibold text-gray-800">Expert Report Generation</h2>
       </div>
       <div className="flex items-center space-x-4 mb-4">
@@ -517,7 +517,7 @@ const App = () => {
   const renderChatSection = () => (
     <div className="bg-white rounded-lg shadow-lg p-6">
       <div className="flex items-center mb-4">
-        <LuMessageSquare className="text-indigo-600 mr-2" size={24} />
+        <MessageSquare className="text-indigo-600 mr-2" size={24} />
         <h2 className="text-xl font-semibold text-gray-800">AI Assistant</h2>
       </div>
       <div className="border rounded-lg h-64 overflow-y-auto p-4 mb-4 bg-gray-50">
@@ -560,7 +560,7 @@ const App = () => {
   const renderAdminSection = () => (
     <div className="bg-white rounded-lg shadow-lg p-6">
       <div className="flex items-center mb-4">
-        <LuSettings className="text-gray-600 mr-2" size={24} />
+        <Settings className="text-gray-600 mr-2" size={24} />
         <h2 className="text-xl font-semibold text-gray-800">Admin Dashboard</h2>
       </div>
       {!isAdminLoggedIn ? (
@@ -631,12 +631,12 @@ const App = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-8">
             {[
-              { id: 'upload', label: 'Upload Data', icon: LuUpload },
-              { id: 'analysis', label: 'Analysis', icon: LuLineChart },
-              { id: 'forecast', label: 'Forecast', icon: LuLightbulb },
-              { id: 'report', label: 'Report', icon: LuFileText },
-              { id: 'chat', label: 'AI Assistant', icon: LuMessageSquare },
-              { id: 'admin', label: 'Admin', icon: LuSettings },
+              { id: 'upload', label: 'Upload Data', icon: Upload },
+              { id: 'analysis', label: 'Analysis', icon: LineChart },
+              { id: 'forecast', label: 'Forecast', icon: Lightbulb },
+              { id: 'report', label: 'Report', icon: FileText },
+              { id: 'chat', label: 'AI Assistant', icon: MessageSquare },
+              { id: 'admin', label: 'Admin', icon: Settings },
             ].map((section) => {
               const Icon = section.icon;
               return (
