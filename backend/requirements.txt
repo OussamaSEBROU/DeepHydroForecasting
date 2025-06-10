@@ -1,0 +1,10 @@
+Flask
+pandas
+numpy
+scikit-learn
+tensorflow
+reportlab
+google-generativeai
+gunicorn
+Flask-Cors
+
