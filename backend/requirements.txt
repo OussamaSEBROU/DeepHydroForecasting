@@ -1,10 +1,10 @@
-Flask
-pandas
-numpy
-scikit-learn
-tensorflow
-reportlab
-google-generativeai
-gunicorn
-Flask-Cors
+Flask==3.0.3
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.5.0
+tensorflow==2.10.0
+reportlab==4.2.0
+google-generativeai==0.7.0
+gunicorn==22.0.0
+Flask-Cors==4.0.1
 
