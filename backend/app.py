@@ -1,483 +1,413 @@
-# app.py
-from flask import Flask, request, jsonify, send_file, send_from_directory
-from flask_cors import CORS
-import pandas as pd
-import numpy as np
-import io
+# backend/app.py
+"""
+Single-file Flask backend for Deep Hydro.
+- Place pretrained model as backend/standard_model.h5
+- Set GOOGLE_API_KEY in environment for Gemini access on Render.
+- Endpoints:
+  POST /api/upload-data        (form-data file: csv/xlsx)
+  GET  /api/data-preview       (?path=...)
+  GET  /api/data-stats         (?path=...)
+  POST /api/forecast           (JSON: {path, features, time_step, horizon})
+  POST /api/generate-report    (JSON: {path, features, time_step, horizon})
+  POST /api/ask-ai             (JSON: {query})
+  POST /api/chat               (JSON: {message, conversation_id})
+  GET  /                         serves frontend index.html (static)
+"""
+
 import os
-from datetime import timedelta
+import io
+import json
+import uuid
+import logging
+from datetime import datetime
+from flask import Flask, request, jsonify, send_file, abort
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+
+import numpy as np
+import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-from scipy.stats import t
-import tensorflow as tf
-from tensorflow.keras.models import load_model # type: ignore
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from reportlab.lib import colors
-import google.generativeai as genai # type: ignore
+from tensorflow.keras.models import load_model
 
-app = Flask(__name__, static_folder='build', static_url_path='/')
-CORS(app) # Enable CORS for all routes
+from fpdf import FPDF
+from docx import Document
 
-# Global variables for data (in-memory for simplicity in this prototype)
-# In a production app, this would be stored in a database (e.g., Firestore)
-# associated with user sessions or IDs.
-current_historical_data = pd.DataFrame()
-current_forecast_data = pd.DataFrame() # Store forecast data for report/chat context
-
-# Load pre-trained model
-MODEL_PATH = 'standard_model.h5'
-model = None
+# Optional Google Generative AI package. If not available, fallback to error.
 try:
-    if os.path.exists(MODEL_PATH):
-        model = load_model(MODEL_PATH)
-        print(f"Model loaded successfully from {MODEL_PATH}")
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
+except Exception:
+    GENAI_AVAILABLE = False
+
+# Config
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+MODEL_PATH = os.path.join(BASE_DIR, "standard_model.h5")
+ALLOWED_EXT = {"csv", "xlsx", "xls"}
+MAX_CONTENT_LENGTH = 200 * 1024 * 1024  # 200 MB
+
+# Flask app
+app = Flask(__name__, static_folder=os.path.join(BASE_DIR, "..", "frontend"), static_url_path="/")
+CORS(app)
+app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
+
+logging.basicConfig(level=logging.INFO)
+
+# Load model once (pretrained)
+_model = None
+_scaler_cache = {}  # optional cache if you want to keep scalers per dataset
+
+def load_pretrained_model():
+    global _model
+    if _model is None:
+        if not os.path.exists(MODEL_PATH):
+            logging.warning("Pretrained model not found at %s", MODEL_PATH)
+            return None
+        _model = load_model(MODEL_PATH)
+        logging.info("Pretrained model loaded.")
+    return _model
+
+# Utility helpers
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
+
+def save_uploaded_file(f):
+    filename = secure_filename(f.filename)
+    uid = uuid.uuid4().hex[:8]
+    filename = f"{datetime.utcnow().strftime('%Y%m%d')}_{uid}_{filename}"
+    path = os.path.join(UPLOAD_DIR, filename)
+    f.save(path)
+    return path
+
+def read_table(path, nrows=200):
+    ext = path.rsplit(".",1)[1].lower()
+    if ext in ("xls","xlsx"):
+        df = pd.read_excel(path)
     else:
-        print(f"Model file not found at {MODEL_PATH}. Forecasting will not work.")
-except Exception as e:
-    print(f"Error loading model: {e}")
-    model = None
+        df = pd.read_csv(path)
+    return df
 
-# Configure Gemini API
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
+def create_sequences_from_array(arr, time_step):
+    X = []
+    for i in range(len(arr) - time_step):
+        X.append(arr[i:i+time_step])
+    return np.array(X)
 
-# Helper to create sequences for LSTM/RNN models
-def create_sequences(data, n_steps):
-    X, y = [], []
-    for i in range(len(data) - n_steps):
-        X.append(data[i:(i + n_steps), 0]) # Assuming single feature
-        y.append(data[i + n_steps, 0])
-    return np.array(X), np.array(y)
+def forecast_from_model(model, recent_window, horizon, feature_count, scaler=None, feature_columns=None):
+    """
+    recent_window: array shape (time_step, feature_count)
+    horizon: int steps to predict
+    scaler: MinMaxScaler used for inverse transform (expected to have same num features + target logic)
+    Returns: list of predicted values (original scale if scaler provided; otherwise scaled)
+    """
+    results = []
+    window = recent_window.copy()
+    for h in range(horizon):
+        x = window.reshape(1, window.shape[0], window.shape[1])
+        pred_scaled = model.predict(x, verbose=0).flatten()  # shape (1,)
+        # Build next row: we append predicted value as last column or as first depending on original layout.
+        # Here we assume target is the first column (commonly Water Level). We'll append predicted value in same feature place.
+        next_row = np.zeros(feature_count)
+        next_row[0] = pred_scaled[0]  # put predicted value in index 0
+        results.append(pred_scaled[0])
+        # shift window
+        window = np.vstack([window[1:], next_row])
+    # if scaler provided, we attempt to inverse transform results by constructing dummy rows
+    if scaler is not None and feature_columns:
+        # scaler was fitted on columns feature_columns (ordered). Build dummy arrays with same shape.
+        inv_results = []
+        for val in results:
+            dummy = np.zeros((1, len(feature_columns)))
+            dummy[0,0] = val  # predicted placed in first column
+            try:
+                inv = scaler.inverse_transform(dummy)[0,0]
+            except Exception:
+                inv = val
+            inv_results.append(float(inv))
+        return inv_results
+    return [float(x) for x in results]
 
-# Function to generate a dummy model (if needed for local testing without a real .h5)
-def generate_dummy_model(output_path='standard_model.h5'):
-    from tensorflow.keras.models import Sequential # type: ignore
-    from tensorflow.keras.layers import LSTM, Dense # type: ignore
-    # A very simple LSTM model for demonstration
-    model = Sequential([
-        LSTM(50, activation='relu', input_shape=(1, 1)), # input_shape = (timesteps, features)
-        Dense(1)
-    ])
-    model.compile(optimizer='adam', loss='mse')
-    model.save(output_path)
-    print(f"Dummy model saved to {output_path}")
 
-# Run this once if standard_model.h5 is missing for local development/testing
-# if not os.path.exists(MODEL_PATH):
-#     generate_dummy_model(MODEL_PATH)
+# == Endpoints ==
 
-# Add this route to serve the React app
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve(path):
-    if path != "" and os.path.exists(app.static_folder + '/' + path):
-        return send_from_directory(app.static_folder, path)
-    else:
-        return send_from_directory(app.static_folder, 'index.html')
+@app.route("/", methods=["GET"])
+def index():
+    # serve frontend build index.html
+    frontend_index = os.path.join(app.static_folder, "index.html")
+    if os.path.exists(frontend_index):
+        return send_file(frontend_index)
+    return "Deep Hydro Backend. Frontend not found.", 200
 
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    global current_historical_data
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    if file and file.filename.endswith('.xlsx'):
-        try:
-            df = pd.read_excel(file.stream)
-            if 'date' not in df.columns or 'level' not in df.columns:
-                return jsonify({'error': 'Excel file must contain "date" and "level" columns'}), 400
-
-            # Ensure date column is datetime objects
-            df['date'] = pd.to_datetime(df['date'])
-            df['level'] = pd.to_numeric(df['level'], errors='coerce')
-            df.dropna(subset=['date', 'level'], inplace=True)
-            df.sort_values('date', inplace=True)
-
-            current_historical_data = df.copy()
-            return jsonify({'message': 'File uploaded and processed successfully', 'data': df.to_dict(orient='records')}), 200
-        except Exception as e:
-            return jsonify({'error': f'Error processing file: {str(e)}'}), 500
-    return jsonify({'error': 'Invalid file type. Please upload an .xlsx file.'}), 400
-
-@app.route('/analyze', methods=['POST'])
-def analyze_data():
-    if current_historical_data.empty:
-        return jsonify({'error': 'No data uploaded for analysis.'}), 400
-
-    df = current_historical_data.copy()
-
-    # Basic Statistics
-    stats = {
-        'mean_level': df['level'].mean(),
-        'median_level': df['level'].median(),
-        'min_level': df['level'].min(),
-        'max_level': df['level'].max(),
-        'std_dev': df['level'].std(),
-        'data_points': len(df),
-        'start_date': df['date'].min().strftime('%Y-%m-%d'),
-        'end_date': df['date'].max().strftime('%Y-%m-%d')
-    }
-
-    # Trend detection (simple linear regression slope or general observation)
-    # For a more robust trend, seasonal-trend decomposition (STL) could be used
-    if len(df) > 1:
-        time_diff = (df['date'] - df['date'].min()).dt.days.values
-        coeffs = np.polyfit(time_diff, df['level'], 1)
-        slope = coeffs[0]
-        if slope > 0.01: # Arbitrary threshold
-            trend = "Upward trend"
-        elif slope < -0.01:
-            trend = "Downward trend"
-        else:
-            trend = "Relatively stable trend"
-    else:
-        trend = "Not enough data for trend analysis."
-
-    # Simple seasonality check (e.g., monthly variations, requires more data)
-    # A more advanced approach would use autocorrelation or FFT
-    seasonality = "No obvious strong seasonality detected (requires more advanced analysis)."
-    if len(df) > 24: # At least 2 years of monthly data for a rough seasonal check
-        monthly_avg = df.set_index('date').groupby(pd.Grouper(freq='M'))['level'].mean()
-        if not monthly_avg.empty:
-            # Check for high variance across months to indicate seasonality
-            if monthly_avg.groupby(monthly_avg.index.month).std().mean() > 0.5 * df['level'].std(): # Threshold
-                seasonality = "Possible seasonal pattern detected (e.g., yearly cycles)."
-
-    # Smart key insights (simplified for now)
-    insights = "The data provides a historical record of groundwater levels. "
-    if trend == "Upward trend":
-        insights += "An increasing trend in groundwater levels is observed, which might indicate higher recharge or reduced extraction."
-    elif trend == "Downward trend":
-        insights += "A decreasing trend is evident, suggesting potential over-extraction or reduced recharge."
-    else:
-        insights += "Levels appear relatively stable over the period."
-    if seasonality.startswith("Possible seasonal pattern"):
-        insights += " Additionally, there are indications of seasonal variations, likely influenced by rainfall or irrigation cycles."
-    else:
-        insights += " No prominent seasonal patterns were automatically detected."
-
-    return jsonify({
-        'stats': stats,
-        'trend': trend,
-        'seasonality': seasonality,
-        'insights': insights
-    }), 200
-
-@app.route('/forecast', methods=['POST'])
-def forecast_levels():
-    global current_forecast_data
-    req_data = request.json
-    if not req_data or 'data' not in req_data or 'months' not in req_data:
-        return jsonify({'error': 'Invalid request data'}), 400
-
-    input_data = pd.DataFrame(req_data['data'])
-    input_data['date'] = pd.to_datetime(input_data['date'])
-    input_data['level'] = pd.to_numeric(input_data['level'])
-    input_data.sort_values('date', inplace=True)
-
-    months_to_forecast = int(req_data['months'])
-
-    if model is None:
-        return jsonify({'error': 'Forecasting model not loaded. Please ensure standard_model.h5 exists.'}), 500
-
-    if input_data.empty or len(input_data) < 2: # Need at least 2 points for scaling
-        return jsonify({'error': 'Insufficient historical data for forecasting. Need at least two data points.'}), 400
-
+@app.route("/api/upload-data", methods=["POST"])
+def api_upload():
+    if "file" not in request.files:
+        return jsonify({"error": "file missing"}), 400
+    f = request.files["file"]
+    if f.filename == "":
+        return jsonify({"error": "no filename"}), 400
+    if not allowed_file(f.filename):
+        return jsonify({"error": "file type not allowed"}), 400
+    path = save_uploaded_file(f)
     try:
-        # Prepare data for forecasting
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        scaled_data = scaler.fit_transform(input_data['level'].values.reshape(-1, 1))
-
-        # LSTM expects 3D input: [samples, timesteps, features]
-        # For simplicity, assume 1 timestep and 1 feature for prediction.
-        # In a real scenario, `n_steps` should be determined by model training.
-        n_steps = 1 # Assuming the model takes the last single observation to predict the next
-        
-        # Prepare last `n_steps` data points for initial prediction
-        last_n_steps_data = scaled_data[-n_steps:].reshape(1, n_steps, 1)
-
-        forecast_levels = []
-        confidence_intervals = []
-        current_prediction_input = last_n_steps_data
-
-        # Simple error estimation for CI (replace with proper quantile regression if model supports it)
-        # Calculate residuals on training data or use a fixed std dev
-        if len(input_data) > n_steps:
-            # Recreate sequences for historical data for error estimation
-            X_hist, y_hist = create_sequences(scaled_data, n_steps)
-            hist_preds = model.predict(X_hist.reshape(X_hist.shape[0], X_hist.shape[1], 1)).flatten()
-            hist_residuals = y_hist - hist_preds
-            rmse_hist = np.sqrt(mean_squared_error(y_hist, hist_preds))
-            std_err_of_pred = np.std(hist_residuals) # Simplified, should consider full model uncertainty
-        else:
-            # Fallback for very small datasets
-            std_err_of_pred = 0.05 # A small arbitrary value if residuals cannot be calculated
-
-        # Degrees of freedom for t-distribution (n - num_parameters in model, simplified)
-        df_t = max(1, len(input_data) - n_steps - 1)
-        # For 95% CI, alpha = 0.05, two-tailed, so alpha/2 = 0.025
-        t_critical = t.ppf(0.975, df_t)
-
-        for i in range(months_to_forecast):
-            # Predict next step
-            predicted_scaled_level = model.predict(current_prediction_input)[0, 0]
-
-            # Invert scaling
-            predicted_level = scaler.inverse_transform([[predicted_scaled_level]])[0, 0]
-            forecast_levels.append(predicted_level)
-
-            # Calculate confidence intervals (simplified)
-            # This is a very basic method. For proper CI, a model that outputs uncertainty
-            # or Bayesian methods would be needed.
-            margin_of_error_scaled = t_critical * std_err_of_pred
-            lower_ci_scaled = predicted_scaled_level - margin_of_error_scaled
-            upper_ci_scaled = predicted_scaled_level + margin_of_error_scaled
-
-            lower_ci = scaler.inverse_transform([[lower_ci_scaled]])[0, 0]
-            upper_ci = scaler.inverse_transform([[upper_ci_scaled]])[0, 0]
-            confidence_intervals.append({'lower_ci': lower_ci, 'upper_ci': upper_ci})
-
-            # Update input for next prediction (autoregressive forecasting)
-            current_prediction_input = np.array([predicted_scaled_level]).reshape(1, n_steps, 1)
-
-        # Generate forecast dates
-        last_date = input_data['date'].max()
-        forecast_dates = [last_date + timedelta(days=30 * (i + 1)) for i in range(months_to_forecast)]
-
-        forecast_df = pd.DataFrame({
-            'date': forecast_dates,
-            'level': forecast_levels,
-            'lower_ci': [ci['lower_ci'] for ci in confidence_intervals],
-            'upper_ci': [ci['upper_ci'] for ci in confidence_intervals],
-        })
-        current_forecast_data = forecast_df.copy()
-
-        # Calculate metrics against historical data (this is more for evaluation, not real forecast metrics)
-        # For a true forecast evaluation, you need a test set not used in training.
-        # Here, we will just provide dummy values or simplified metrics as the model isn't trained here.
-        # Real RMSE/MAE/MAPE should be calculated on a validation set.
-        # For this prototype, we'll return placeholder metrics.
-        metrics = {
-            'rmse': 0.0, # Placeholder
-            'mae': 0.0,  # Placeholder
-            'mape': 0.0  # Placeholder
-        }
-        if len(input_data) > n_steps: # Only if there's enough historical data to "predict" on
-            # Let's use the RMSE calculated from historical data for the model performance, as a proxy
-            metrics['rmse'] = rmse_hist if 'rmse_hist' in locals() else 0.0
-            metrics['mae'] = np.mean(np.abs(hist_residuals)) if 'hist_residuals' in locals() else 0.0
-            # MAPE can be tricky with values near zero, use a robust version if needed
-            metrics['mape'] = np.mean(np.abs(hist_residuals / y_hist)) * 100 if 'hist_residuals' in locals() and np.all(y_hist != 0) else 0.0
-
-
-        return jsonify({
-            'message': 'Forecast generated successfully',
-            'forecast': forecast_df.to_dict(orient='records'),
-            'metrics': metrics
-        }), 200
+        df = read_table(path)
+        # Minimal check : ensure at least one numeric column
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        return jsonify({"message": "uploaded", "path": path, "columns": df.columns.tolist(), "numeric_columns": numeric_cols}), 200
     except Exception as e:
-        return jsonify({'error': f'Error during forecasting: {str(e)}'}), 500
+        logging.exception("read_table error")
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/generate_report', methods=['POST'])
-def generate_report():
-    req_data = request.json
-    if not req_data or 'historical_data' not in req_data or 'language' not in req_data:
-        return jsonify({'error': 'Invalid request data'}), 400
+@app.route("/api/data-preview", methods=["GET"])
+def api_preview():
+    path = request.args.get("path")
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "path missing or not exists"}), 400
+    n = int(request.args.get("n", 50))
+    try:
+        df = read_table(path)
+        return jsonify({"columns": df.columns.tolist(), "preview": df.head(n).to_dict(orient="records")})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    historical_df = pd.DataFrame(req_data['historical_data'])
-    historical_df['date'] = pd.to_datetime(historical_df['date'])
-    historical_df['level'] = pd.to_numeric(historical_df['level'])
+@app.route("/api/data-stats", methods=["GET"])
+def api_stats():
+    path = request.args.get("path")
+    if not path or not os.path.exists(path):
+        return jsonify({"error":"path missing or not exists"}), 400
+    try:
+        df = read_table(path)
+        desc = df.describe(include="all").to_dict()
+        # extra: correlation matrix for numeric columns
+        corr = df.select_dtypes(include=[np.number]).corr().to_dict()
+        return jsonify({"describe": desc, "correlation": corr})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    forecast_df = pd.DataFrame(req_data.get('forecast_data', []))
-    if not forecast_df.empty:
-        forecast_df['date'] = pd.to_datetime(forecast_df['date'])
-        forecast_df['level'] = pd.to_numeric(forecast_df['level'])
-
-    language = req_data['language']
-    
-    # Generate report content using Gemini
-    prompt_template_en = f"""
-    You are an expert hydrogeologist with 20+ years of experience.
-    Generate a comprehensive groundwater level analysis and forecasting report based on the following data.
-    The report should be professional, insightful, and actionable.
-
-    Historical Groundwater Data (Date, Level):
-    {historical_df.to_string(index=False)}
-
-    Forecasted Groundwater Data (Date, Level):
-    {forecast_df.to_string(index=False) if not forecast_df.empty else "No forecast data available."}
-
-    The report must include the following sections:
-    1.  **Executive Summary:** A concise overview of findings and recommendations.
-    2.  **Historical Data Insights:** Detailed analysis of historical trends, seasonality, and any anomalies. Discuss minimum, maximum, mean levels, and overall stability or change.
-    3.  **Forecast Interpretation:** Analysis of the predicted future groundwater levels, including potential implications for water management, sustainability, and any associated risks or opportunities. Discuss the confidence intervals if applicable.
-    4.  **Recommendations:** Actionable advice for water resource managers, policymakers, or landowners based on the analysis and forecast.
-    
-    Ensure the tone is authoritative and professional.
+@app.route("/api/forecast", methods=["POST"])
+def api_forecast():
     """
-
-    prompt_template_fr = f"""
-    Vous êtes un hydrogéologue expert avec plus de 20 ans d'expérience.
-    Générez un rapport complet d'analyse et de prévision du niveau des eaux souterraines basé sur les données suivantes.
-    Le rapport doit être professionnel, perspicace et exploitable.
-
-    Données historiques sur le niveau des eaux souterraines (Date, Niveau):
-    {historical_df.to_string(index=False)}
-
-    Données prévisionnelles sur le niveau des eaux souterraines (Date, Niveau):
-    {forecast_df.to_string(index=False) if not forecast_df.empty else "Aucune donnée de prévision disponible."}
-
-    Le rapport doit inclure les sections suivantes:
-    1.  **Résumé Exécutif:** Un aperçu concis des conclusions et des recommandations.
-    2.  **Analyse des Données Historiques:** Analyse détaillée des tendances historiques, de la saisonnalité et des anomalies. Discutez des niveaux minimum, maximum, moyen, et de la stabilité ou des changements globaux.
-    3.  **Interprétation des Prévisions:** Analyse des niveaux futurs prévus des eaux souterraines, y compris les implications potentielles pour la gestion de l'eau, la durabilité et les risques ou opportunités associés. Discutez des intervalles de confiance si applicable.
-    4.  **Recommandations:** Conseils exploitables pour les gestionnaires des ressources en eau, les décideurs ou les propriétaires fonciers basés sur l'analyse et les prévisions.
-
-    Assurez-vous que le ton est autoritaire et professionnel.
+    JSON body:
+    {
+      "path": "backend/uploads/....csv",
+      "feature_columns": ["Water Level","Rainfall",...],   # order must match what model expects
+      "time_step": 10,
+      "horizon": 7
+    }
     """
+    payload = request.get_json() or {}
+    path = payload.get("path")
+    feature_columns = payload.get("feature_columns")
+    time_step = int(payload.get("time_step", 10))
+    horizon = int(payload.get("horizon", 7))
 
-    prompt = prompt_template_fr if language == 'fr' else prompt_template_en
+    if not path or not os.path.exists(path):
+        return jsonify({"error":"path missing or file not found"}), 400
+    if not feature_columns:
+        return jsonify({"error":"feature_columns required"}), 400
 
     try:
-        model_name = "gemini-2.0-flash"
-        if not genai.get_model(model_name):
-            return jsonify({'error': 'Gemini model not found. Please check API key and model availability.'}), 500
+        df = read_table(path)
+        # ensure columns exist
+        for c in feature_columns:
+            if c not in df.columns:
+                return jsonify({"error": f"column {c} not found"}), 400
 
-        llm_model = genai.GenerativeModel(model_name)
-        response = llm_model.generate_content(prompt)
-        report_content_text = response.candidates[0].content.parts[0].text
+        data_arr = df[feature_columns].values.astype(float)
+        # fit scaler on the provided data (MinMax as in original)
+        scaler = MinMaxScaler(feature_range=(0,1))
+        scaled = scaler.fit_transform(data_arr)
+
+        if len(scaled) < time_step:
+            return jsonify({"error": "not enough rows for the given time_step"}), 400
+
+        recent_window = scaled[-time_step:, :]  # shape (time_step, features)
+        model = load_pretrained_model()
+        if model is None:
+            return jsonify({"error": "pretrained model not loaded"}), 500
+
+        preds_scaled = forecast_from_model(model, recent_window, horizon, feature_count=scaled.shape[1], scaler=scaler, feature_columns=feature_columns)
+        # timestamps: continue index if Date exists
+        timestamps = None
+        if "Date" in df.columns or hasattr(df.index, "tolist"):
+            try:
+                if "Date" in df.columns:
+                    last_date = pd.to_datetime(df["Date"].iloc[-1])
+                else:
+                    last_date = pd.to_datetime(df.index[-1])
+                timestamps = [(last_date + pd.Timedelta(days=i+1)).strftime("%Y-%m-%d") for i in range(horizon)]
+            except Exception:
+                timestamps = None
+
+        return jsonify({"predictions": preds_scaled, "timestamps": timestamps, "horizon": horizon})
+    except Exception as e:
+        logging.exception("forecast error")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/generate-report", methods=["POST"])
+def api_generate_report():
+    """
+    Generate both PDF and Word (docx) report and return as files (zip-like multi-call).
+    Body:
+      JSON { path, feature_columns, time_step, horizon }
+    Returns:
+      JSON with base64pdf and base64docx (so frontend can download)
+    """
+    payload = request.get_json() or {}
+    path = payload.get("path")
+    feature_columns = payload.get("feature_columns")
+    time_step = int(payload.get("time_step", 10))
+    horizon = int(payload.get("horizon", 7))
+
+    if not path or not os.path.exists(path):
+        return jsonify({"error":"path missing or file not found"}), 400
+    if not feature_columns:
+        return jsonify({"error":"feature_columns required"}), 400
+
+    try:
+        # gather stats
+        df = read_table(path)
+        desc = df[feature_columns].describe().to_string()
+        corr = df[feature_columns].corr().to_string()
+
+        # produce forecast
+        forecast_res = api_forecast_json(path, feature_columns, time_step, horizon)
+        preds = forecast_res.get("predictions", [])
 
         # Create PDF
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter)
-        styles = getSampleStyleSheet()
+        pdf_bytes = build_pdf_bytes(path, feature_columns, desc, corr, preds)
+        # Create Word doc
+        docx_bytes = build_docx_bytes(path, feature_columns, desc, corr, preds)
 
-        # Custom styles for professionalism
-        styles.add(ParagraphStyle(name='Title', fontSize=24, leading=28, alignment=TA_CENTER, fontName='Helvetica-Bold'))
-        styles.add(ParagraphStyle(name='Heading1', fontSize=18, leading=22, spaceAfter=12, fontName='Helvetica-Bold'))
-        styles.add(ParagraphStyle(name='Heading2', fontSize=14, leading=18, spaceBefore=10, spaceAfter=6, fontName='Helvetica-Bold'))
-        styles.add(ParagraphStyle(name='Normal', fontSize=10, leading=14, spaceAfter=6))
-        styles.add(ParagraphStyle(name='Code', fontName='Courier', fontSize=9, leading=10, textColor=colors.darkblue, backColor=colors.lightgrey))
-
-        story = []
-
-        story.append(Paragraph("DeepHydro Forecasting: Groundwater Level Report", styles['Title']))
-        story.append(Spacer(1, 0.2 * 25.4)) # 0.2 inch spacer
-        story.append(Paragraph(f"Date: {pd.Timestamp.now().strftime('%Y-%m-%d')}", styles['Normal']))
-        story.append(Spacer(1, 0.4 * 25.4))
-
-        # Split the generated report content into sections
-        sections = report_content_text.split('**Executive Summary:**')
-        executive_summary = sections[1].split('**Historical Data Insights:**')[0].strip()
-        historical_insights = sections[1].split('**Historical Data Insights:**')[1].split('**Forecast Interpretation:**')[0].strip()
-        forecast_interpretation = sections[1].split('**Forecast Interpretation:**')[1].split('**Recommendations:**')[0].strip()
-        recommendations = sections[1].split('**Recommendations:**')[1].strip()
-
-        story.append(Paragraph("1. Executive Summary", styles['Heading1']))
-        for line in executive_summary.split('\n'):
-            story.append(Paragraph(line.strip(), styles['Normal']))
-        story.append(Spacer(1, 0.2 * 25.4))
-
-        story.append(Paragraph("2. Historical Data Insights", styles['Heading1']))
-        # Add historical data table
-        if not historical_df.empty:
-            historical_data_display = historical_df.head(10).to_string(index=False) + (f"\n... and {len(historical_df) - 10} more rows" if len(historical_df) > 10 else "")
-            story.append(Paragraph("Sample of Historical Data:", styles['Heading2']))
-            story.append(Paragraph(historical_data_display, styles['Code']))
-            story.append(Spacer(1, 0.2 * 25.4))
-        for line in historical_insights.split('\n'):
-            story.append(Paragraph(line.strip(), styles['Normal']))
-        story.append(Spacer(1, 0.2 * 25.4))
-
-        story.append(Paragraph("3. Forecast Interpretation", styles['Heading1']))
-        # Add forecast data table
-        if not forecast_df.empty:
-            forecast_data_display = forecast_df.head(10).to_string(index=False) + (f"\n... and {len(forecast_df) - 10} more rows" if len(forecast_df) > 10 else "")
-            story.append(Paragraph("Sample of Forecasted Data:", styles['Heading2']))
-            story.append(Paragraph(forecast_data_display, styles['Code']))
-            story.append(Spacer(1, 0.2 * 25.4))
-        for line in forecast_interpretation.split('\n'):
-            story.append(Paragraph(line.strip(), styles['Normal']))
-        story.append(Spacer(1, 0.2 * 25.4))
-
-        story.append(Paragraph("4. Recommendations", styles['Heading1']))
-        for line in recommendations.split('\n'):
-            story.append(Paragraph(line.strip(), styles['Normal']))
-        story.append(Spacer(1, 0.2 * 25.4))
-
-
-        doc.build(story)
-        buffer.seek(0)
-        return send_file(buffer, as_attachment=True, download_name='DeepHydro_Report.pdf', mimetype='application/pdf'), 200
-
+        import base64
+        return jsonify({
+            "pdf_base64": base64.b64encode(pdf_bytes).decode("utf-8"),
+            "docx_base64": base64.b64encode(docx_bytes).decode("utf-8")
+        })
     except Exception as e:
-        return jsonify({'error': f'Error generating report: {str(e)}'}), 500
+        logging.exception("report error")
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/chat', methods=['POST'])
-def chat_with_ai():
-    req_data = request.json
-    if not req_data or 'chat_history' not in req_data:
-        return jsonify({'error': 'Invalid request data'}), 400
+def api_forecast_json(path, feature_columns, time_step, horizon):
+    # helper to call forecast logic synchronously
+    df = read_table(path)
+    data_arr = df[feature_columns].values.astype(float)
+    scaler = MinMaxScaler(feature_range=(0,1))
+    scaled = scaler.fit_transform(data_arr)
+    recent_window = scaled[-time_step:, :]
+    model = load_pretrained_model()
+    preds_scaled = forecast_from_model(model, recent_window, horizon, feature_count=scaled.shape[1], scaler=scaler, feature_columns=feature_columns)
+    return {"predictions": preds_scaled}
 
-    chat_history_from_frontend = req_data['chat_history']
-    historical_data_df = pd.DataFrame(req_data.get('historical_data', []))
-    forecast_data_df = pd.DataFrame(req_data.get('forecast_data', []))
+def build_pdf_bytes(path, feature_columns, desc_text, corr_text, preds):
+    from fpdf import FPDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "Deep Hydro — Forecast Report", ln=True, align="C")
+    pdf.ln(6)
+    pdf.set_font("Arial", "", 12)
+    pdf.multi_cell(0, 6, f"Dataset: {os.path.basename(path)}")
+    pdf.ln(4)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 6, "Descriptive Statistics:", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.multi_cell(0, 5, desc_text)
+    pdf.ln(4)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 6, "Correlation Matrix:", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.multi_cell(0, 5, corr_text)
+    pdf.ln(6)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 6, "Forecast (next steps):", ln=True)
+    pdf.set_font("Arial", "", 10)
+    for i, p in enumerate(preds, 1):
+        pdf.cell(0, 6, f"Step {i}: {p}", ln=True)
+    return pdf.output(dest="S").encode("latin1")
 
-    # Construct the full chat history for Gemini, including a system instruction
-    # and context about the data.
-    context_data = ""
-    if not historical_data_df.empty:
-        context_data += "\n\nHistorical Groundwater Data:\n" + historical_data_df.to_string(index=False)
-    if not forecast_data_df.empty:
-        context_data += "\n\nForecasted Groundwater Data:\n" + forecast_data_df.to_string(index=False)
+def build_docx_bytes(path, feature_columns, desc_text, corr_text, preds):
+    doc = Document()
+    doc.add_heading("Deep Hydro — Forecast Report", level=1)
+    doc.add_paragraph(f"Dataset: {os.path.basename(path)}")
+    doc.add_heading("Descriptive statistics", level=2)
+    doc.add_paragraph(desc_text)
+    doc.add_heading("Correlation matrix", level=2)
+    doc.add_paragraph(corr_text)
+    doc.add_heading("Forecast (next steps)", level=2)
+    for i, p in enumerate(preds, 1):
+        doc.add_paragraph(f"Step {i}: {p}")
+    bio = io.BytesIO()
+    doc.save(bio)
+    return bio.getvalue()
 
-    # Transform frontend chat history to Gemini's expected format
-    gemini_chat_history = []
-    for msg in chat_history_from_frontend:
-        gemini_chat_history.append({'role': msg['role'], 'parts': [{'text': msg['content']}]})
+@app.route("/api/ask-ai", methods=["POST"])
+def api_ask_ai():
+    """
+    Body: { "query": "explain ..." }
+    Returns: JSON { response: "..." }
+    """
+    payload = request.get_json() or {}
+    query = payload.get("query", "")
+    if not query:
+        return jsonify({"error":"query required"}), 400
 
-    # Add system instruction and context to the beginning of the history
-    # This acts as a persona and provides data context
-    system_instruction = {
-        'role': 'user',
-        'parts': [{'text': f"You are an expert hydrogeologist AI. Your goal is to provide insightful and accurate answers regarding groundwater levels, trends, and forecasts based on the provided historical and predicted data. Maintain a professional and helpful tone.{context_data}"}]
-    }
-    # If the history is not empty, ensure the system instruction is correctly interleaved,
-    # or just prepend if it's the first message from user.
-    # For simplicity, if chat history is empty, make the first message system instruction + user query.
-    # Otherwise, just append user query.
-    if not gemini_chat_history:
-        gemini_chat_history.append(system_instruction)
-    else:
-        # If there's existing chat, append the context to the *first* user message or handle it appropriately
-        # For simplicity, let's just make sure our latest user message (the last one) gets processed correctly
-        # and the model has access to the full context.
-        # A more robust solution for long conversations with context updates would be needed.
-        pass
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        return jsonify({"error":"GOOGLE_API_KEY not set in environment"}), 500
 
+    if not GENAI_AVAILABLE:
+        return jsonify({"error":"google.generativeai package not available on server"}), 500
 
     try:
-        model_name = "gemini-2.0-flash"
-        if not genai.get_model(model_name):
-            return jsonify({'error': 'Gemini model not found. Please check API key and model availability.'}), 500
-
-        llm_model = genai.GenerativeModel(model_name)
-        # Pass the full chat history directly to the model
-        response = llm_model.generate_content(gemini_chat_history)
-        ai_response_text = response.candidates[0].content.parts[0].text
-
-        return jsonify({'response': ai_response_text}), 200
-
+        genai.configure(api_key=api_key)
+        model_ai = genai.GenerativeModel("gemini-pro")
+        resp = model_ai.generate_content(query)
+        text = getattr(resp, "text", str(resp))
+        return jsonify({"response": text})
     except Exception as e:
-        return jsonify({'error': f'Error during AI chat: {str(e)}'}), 500
+        logging.exception("genai error")
+        return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
-    # When running locally, ensure dummy model is generated
-    if not os.path.exists(MODEL_PATH):
-        print("Generating dummy model...")
-        generate_dummy_model(MODEL_PATH)
-    app.run(debug=True, host='0.0.0.0', port=5000)
+# Simple chat endpoint storing ephemeral conversation in memory (for demo)
+_conversations = {}
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    """
+    Body: { "conversation_id": optional, "message": "..." }
+    Returns: { conversation_id, reply }
+    """
+    payload = request.get_json() or {}
+    msg = payload.get("message", "")
+    if not msg:
+        return jsonify({"error":"message required"}), 400
+    conv_id = payload.get("conversation_id") or uuid.uuid4().hex
+    # Append to conversation
+    _conversations.setdefault(conv_id, []).append({"role":"user","text":msg, "ts": datetime.utcnow().isoformat()})
+    # Use Gemini if available
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if api_key and GENAI_AVAILABLE:
+        try:
+            genai.configure(api_key=api_key)
+            model_ai = genai.GenerativeModel("gemini-pro")
+            resp = model_ai.generate_content(msg)
+            text = getattr(resp, "text", str(resp))
+        except Exception as e:
+            text = f"(AI error) {str(e)}"
+    else:
+        # fallback: echo + simple analysis hint
+        text = f"Echo: {msg[:200]}. To enable intelligent replies set GOOGLE_API_KEY in environment and ensure google.generativeai library is installed."
+    _conversations[conv_id].append({"role":"assistant","text":text, "ts": datetime.utcnow().isoformat()})
+    return jsonify({"conversation_id": conv_id, "reply": text})
+
+# Health
+@app.route("/api/health", methods=["GET"])
+def health():
+    model_present = os.path.exists(MODEL_PATH)
+    return jsonify({"status":"ok", "model_present": model_present, "genai_available": GENAI_AVAILABLE})
+
+if __name__ == "__main__":
+    # ensure model is attempted to be loaded at start
+    load_pretrained_model()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=False)
